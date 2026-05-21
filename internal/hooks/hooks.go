@@ -149,6 +149,8 @@ func InstallWtRemoveAlias(repoRoot string) error {
                 for f in "$HOME/.profile" "$HOME/.bashrc"; do
                     [ -f "$f" ] && . "$f" 2>/dev/null && break
                 done
+                cd "$2" 2>/dev/null
+                [ -f .envrc ] && . .envrc 2>/dev/null
                 eval "$1" "$2"
             ' _ "$WRAPUP" "$WT_PATH"; then
                 echo "wt-helper: wrapup failed: $WRAPUP" >&2
