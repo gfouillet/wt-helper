@@ -177,6 +177,24 @@ func runSetup(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("copy envrc to .git/: %w", err)
 		}
 		fmt.Printf("wt-helper: copied envrc to %s\n", gitEnvrc)
+
+		// Plain mode: copy .envrc to repo root and add to .gitignore
+		if !isTemplateMode {
+			envrcDest := filepath.Join(repoRoot, ".envrc")
+			if err := copyFile(absEnvrc, envrcDest); err != nil {
+				return fmt.Errorf("copy .envrc to repo root: %w", err)
+			}
+			fmt.Printf("wt-helper: copied .envrc to %s\n", envrcDest)
+
+			if err := addToGitignore(repoRoot, ".envrc"); err != nil {
+				return fmt.Errorf("update .gitignore: %w", err)
+			}
+
+			if direnvPath, err := exec.LookPath("direnv"); err == nil {
+				exec.Command(direnvPath, "allow", repoRoot).Run()
+				fmt.Println("wt-helper: direnv allow on main repo")
+			}
+		}
 	}
 
 	// --- Handle template vars ---
