@@ -23,13 +23,13 @@ No more forgetting to copy `.envrc`. No more orphaned docker containers named `d
 ## Installation
 
 ```bash
-go install github.com/guillaume-fouillet/wt-helper@latest
+go install github.com/gfouillet/wt-helper@latest
 ```
 
 Or if you like to live dangerously:
 
 ```bash
-git clone https://github.com/guillaume-fouillet/wt-helper.git
+git clone https://github.com/gfouillet/wt-helper.git
 cd wt-helper
 go build -o wt-helper .
 mv wt-helper ~/.local/bin/
