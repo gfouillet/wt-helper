@@ -47,7 +47,7 @@ func Render(templatePath string, data *TemplateData) (string, error) {
 		},
 	}
 
-	tmpl, err := template.New(filepath.Base(templatePath)).Funcs(funcMap).Parse(string(content))
+	tmpl, err := template.New(filepath.Base(templatePath)).Funcs(funcMap).Option("missingkey=zero").Parse(string(content))
 	if err != nil {
 		return "", fmt.Errorf("parse template: %w", err)
 	}
