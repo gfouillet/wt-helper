@@ -2,11 +2,13 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/chzyer/readline"
 	"github.com/gfouillet/wt-helper/internal/config"
 	"github.com/gfouillet/wt-helper/internal/git"
 	"github.com/gfouillet/wt-helper/internal/hooks"
@@ -15,12 +17,15 @@ import (
 )
 
 var (
-	target    string
-	envrcFile string
-	wrapupCmd string
-	force     bool
-	varsFile  string
-	auto      bool
+	target         string
+	envrcFile      string
+	wrapupCmd      string
+	force          bool
+	varsFile       string
+	auto           bool
+	depDirs        []string
+	depCopy        bool
+	depInteractive bool
 )
 
 var rootCmd = &cobra.Command{
@@ -68,10 +73,14 @@ func init() {
 	setupCmd.Flags().BoolVar(&force, "force", false, "Overwrite existing hooks without prompting")
 	setupCmd.Flags().StringVar(&varsFile, "vars-file", "", "Path to vars file for template rendering (JSON/TOML/YAML)")
 	setupCmd.Flags().BoolVar(&auto, "auto", false, "Non-interactive mode: fail if template variables are missing")
+	setupCmd.Flags().StringSliceVar(&depDirs, "dep-dir", nil, "Directory to symlink/copy into new worktrees (repeatable)")
+	setupCmd.Flags().BoolVar(&depCopy, "dep-copy", false, "Deep copy dep dirs instead of symlinks")
+	setupCmd.Flags().BoolVar(&depInteractive, "dep-interactive", false, "Interactively choose directories to link/copy")
 
 	setupCmd.MarkFlagDirname("target")
 	setupCmd.MarkFlagFilename("envrc-file")
 	setupCmd.MarkFlagFilename("vars-file")
+	setupCmd.RegisterFlagCompletionFunc("dep-dir", depDirCompletion)
 
 	renderTemplateCmd.Flags().String("vars", "", "Path to vars file")
 	renderTemplateCmd.Flags().String("worktree-path", "", "Worktree absolute path")
@@ -282,6 +291,36 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// --- Resolve dep dirs ---
+	var resolvedDepDirs []string
+	if depInteractive {
+		dirs, err := promptDepDirs(repoRoot)
+		if err != nil {
+			return fmt.Errorf("interactive dep-dir selection: %w", err)
+		}
+		resolvedDepDirs = dirs
+	} else {
+		for _, d := range depDirs {
+			abs := filepath.Join(repoRoot, d)
+			info, err := os.Stat(abs)
+			if os.IsNotExist(err) {
+				return fmt.Errorf("dep-dir does not exist: %s", abs)
+			}
+			if err != nil {
+				return fmt.Errorf("stat dep-dir: %w", err)
+			}
+			if !info.IsDir() {
+				return fmt.Errorf("dep-dir is not a directory: %s", abs)
+			}
+			resolvedDepDirs = append(resolvedDepDirs, d)
+		}
+	}
+
+	depMode := "symlink"
+	if depCopy {
+		depMode = "copy"
+	}
+
 	// --- Save config ---
 	// Paths stored relative to gitDir (.git/)
 	envrcSourceRel := ""
@@ -297,6 +336,8 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		VarsFile:    varsFileRel,
 		HelperBin:   helperBin,
 		IsTemplate:  isTemplateMode,
+		DepDirs:     strings.Join(resolvedDepDirs, ","),
+		DepMode:     depMode,
 	}
 	if err := config.Save(repoRoot, cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
@@ -343,6 +384,9 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	}
 	if isTemplateMode {
 		fmt.Println("  creation:     git wt-add <worktree-path> -b <branch>")
+	}
+	if len(resolvedDepDirs) > 0 {
+		fmt.Printf("  dep dirs:     %s (%s)\n", strings.Join(resolvedDepDirs, ", "), depMode)
 	}
 	return nil
 }
@@ -415,6 +459,97 @@ func runPrepareVars(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("write merged vars: %w", err)
 	}
 	return nil
+}
+
+func listRepoDirs(repoRoot string) []string {
+	entries, err := os.ReadDir(repoRoot)
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	for _, e := range entries {
+		if e.IsDir() && e.Name() != ".git" {
+			dirs = append(dirs, e.Name())
+		}
+	}
+	return dirs
+}
+
+type dirCompleter struct {
+	repoRoot string
+}
+
+func (c dirCompleter) Do(line []rune, pos int) ([][]rune, int) {
+	prefix := string(line[:pos])
+	dirs := listRepoDirs(c.repoRoot)
+	var matches []string
+	for _, d := range dirs {
+		if strings.HasPrefix(d, prefix) {
+			matches = append(matches, d)
+		}
+	}
+	result := make([][]rune, 0, len(matches))
+	for _, m := range matches {
+		result = append(result, []rune(m[len(prefix):]))
+	}
+	return result, len(prefix)
+}
+
+func promptDepDirs(repoRoot string) ([]string, error) {
+	fmt.Println("Select dep dirs (TAB to complete, enter empty to finish):")
+
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:       "  dir > ",
+		AutoComplete: dirCompleter{repoRoot: repoRoot},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("readline: %w", err)
+	}
+	defer rl.Close()
+
+	var result []string
+	for {
+		d, err := rl.Readline()
+		if err == io.EOF || d == "" {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("readline: %w", err)
+		}
+		d = strings.TrimSpace(d)
+		if d == "" {
+			break
+		}
+		abs := filepath.Join(repoRoot, d)
+		info, err := os.Stat(abs)
+		if os.IsNotExist(err) {
+			fmt.Printf("    %s: directory not found\n", d)
+			continue
+		}
+		if err != nil {
+			fmt.Printf("    %s: %v\n", d, err)
+			continue
+		}
+		if !info.IsDir() {
+			fmt.Printf("    %s: not a directory\n", d)
+			continue
+		}
+		result = append(result, d)
+	}
+	return result, nil
+}
+
+func depDirCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	repoRoot, _ := cmd.Flags().GetString("target")
+	if repoRoot == "" {
+		repoRoot, _ = os.Getwd()
+	}
+	repoRoot, err := git.ResolveRepo(repoRoot)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	dirs := listRepoDirs(repoRoot)
+	return dirs, cobra.ShellCompDirectiveNoFileComp
 }
 
 func runCompletion(cmd *cobra.Command, args []string) error {

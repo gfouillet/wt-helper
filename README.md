@@ -105,6 +105,30 @@ PORT: "8080"
 DB_DRIVER: "sqlite"
 ```
 
+### Dependency directories (symlink/copy into worktrees)
+
+Some directories are `.gitignored` but needed in every worktree — build caches (`.go`, `.npm`), dependencies (`node_modules`, `vendor`), etc. `wt-helper` can symlink or deep-copy them automatically.
+
+```bash
+# Symlink .go and node_modules into every new worktree
+wt-helper setup --envrc-file .envrc --dep-dir .go --dep-dir node_modules
+
+# Deep copy instead of symlink (for dirs that break with symlinks)
+wt-helper setup --envrc-file .envrc --dep-dir .go --dep-dir node_modules --dep-copy
+
+# Interactively pick which dirs to link (tab-completion available)
+wt-helper setup --envrc-file .envrc --dep-interactive
+```
+
+At worktree creation, the hook creates the symlinks/copies AFTER installing `.envrc` and BEFORE `direnv allow`. If the directory already exists in the worktree, it is overwritten.
+
+Completion for `--dep-dir` lists directories in the target repo:
+
+```bash
+wt-helper setup --dep-dir <TAB>
+# → .go  node_modules  vendor  .cache
+```
+
 ### The happy path
 
 ```bash
@@ -163,6 +187,7 @@ wt-helper completion fish > ~/.config/fish/completions/wt-helper.fish
 5. Installs a `post-checkout` hook
 6. Installs a `git wt-remove` alias
 7. If template: installs a `git wt-add` alias
+8. If `--dep-dir` specified: stores dependency dirs in config for linking/copying into new worktrees
 
 ### Interactive creation: `git wt-add` alias (template mode only)
 
@@ -184,8 +209,9 @@ Triggered by ANY `git worktree add` (or `git wt-add`). The hook:
 3. Checks `$WT_VARS_FILE` — if set by `git wt-add`, uses it instead of the default vars file
 4. If `is-template = true`: calls `wt-helper render-template` with the vars file
 5. If `is-template = false`: copies `.git/envrc-source` verbatim
-6. Runs `direnv allow` so you don't have to type it like an animal
-7. If the worktree already has an `.envrc`, asks before overwriting (it's polite like that)
+6. Creates symlinks (or deep copies) for configured dependency dirs
+7. Runs `direnv allow` so you don't have to type it like an animal
+8. If the worktree already has an `.envrc`, asks before overwriting (it's polite like that)
 
 The hook uses marker comments (`# >>> wt-helper start` / `# <<< wt-helper end`) so re-running `setup` doesn't clobber your other hooks. It's surgical. It's precise. It's better than you at managing hooks.
 

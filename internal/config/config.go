@@ -15,6 +15,8 @@ type Config struct {
 	VarsFile    string
 	HelperBin   string
 	IsTemplate  bool
+	DepDirs     string
+	DepMode     string
 }
 
 func confPath(repoRoot string) string {
@@ -59,6 +61,10 @@ func Load(repoRoot string) (*Config, error) {
 			cfg.HelperBin = val
 		case "is-template":
 			cfg.IsTemplate = val == "true"
+		case "dep-dirs":
+			cfg.DepDirs = val
+		case "dep-mode":
+			cfg.DepMode = val
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -93,5 +99,11 @@ func Save(repoRoot string, cfg *Config) error {
 		fmt.Fprintf(f, "helper-bin = %s\n", cfg.HelperBin)
 	}
 	fmt.Fprintf(f, "is-template = %v\n", cfg.IsTemplate)
+	if cfg.DepDirs != "" {
+		fmt.Fprintf(f, "dep-dirs = %s\n", cfg.DepDirs)
+	}
+	if cfg.DepMode != "" {
+		fmt.Fprintf(f, "dep-mode = %s\n", cfg.DepMode)
+	}
 	return nil
 }

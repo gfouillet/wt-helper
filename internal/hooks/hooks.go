@@ -64,6 +64,19 @@ if [ "$OLD_REF" = "$NULL_SHA" ] && [ -f "$CONF" ]; then
         fi
         echo "wt-helper: .envrc installed and allowed"
     fi
+    DEP_DIRS=$(grep '^dep-dirs' "$CONF" | sed 's/^dep-dirs *= *//')
+    DEP_MODE=$(grep '^dep-mode' "$CONF" | sed 's/^dep-mode *= *//')
+    if [ -n "$DEP_DIRS" ]; then
+        MAIN_REPO=$(grep '^main-repo' "$CONF" | sed 's/^main-repo *= *//')
+        for dir in $(echo "$DEP_DIRS" | tr ',' ' '); do
+            if [ "$DEP_MODE" = "copy" ]; then
+                rm -rf "$PWD/$dir" && cp -r "$MAIN_REPO/$dir" "$PWD/$dir"
+            else
+                ln -sf "$MAIN_REPO/$dir" "$PWD/$dir"
+            fi
+        done
+        echo "wt-helper: linked dep dirs: $DEP_DIRS"
+    fi
 fi
 ` + markerEnd
 }
