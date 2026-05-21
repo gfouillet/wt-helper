@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -249,6 +250,12 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		// Add .envrc to .gitignore
 		if err := addToGitignore(repoRoot, ".envrc"); err != nil {
 			return fmt.Errorf("update .gitignore: %w", err)
+		}
+
+		// Run direnv allow on the main repo
+		if direnvPath, err := exec.LookPath("direnv"); err == nil {
+			exec.Command(direnvPath, "allow", repoRoot).Run()
+			fmt.Println("wt-helper: direnv allow on main repo")
 		}
 	}
 
