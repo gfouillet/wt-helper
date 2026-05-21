@@ -2,16 +2,17 @@
 
 **Because `git worktree add` should be smarter than you are at 3am.**
 
-A CLI tool that makes git worktrees actually usable for parallel agent workflows. It copies your `.envrc` when you spawn a worktree and cleans up your mess when you delete one.
+A CLI tool that makes git worktrees actually usable for parallel agent workflows. It copies or renders your `.envrc` when you spawn a worktree and cleans up your mess when you delete one.
 
 ## What it does
 
 ```
+git wt-add       → "PORT [8080] = ?  SECRET [default] = ?"
 git worktree add → "here's your .envrc, I already direnv-allow'd it, you're welcome"
 git wt-remove    → "let me run your cleanup script before I nuke this"
 ```
 
-No more forgetting to copy `.envrc`. No more orphaned docker containers named `dev-feature-branch-42` haunting your machine like digital ghosts.
+No more forgetting to copy `.envrc`. No more orphaned docker containers named `dev-feature-branch-42` haunting your machine like digital ghosts. For template repos, `git wt-add` prompts for vars BEFORE creating the worktree — interactive, with defaults, no surprises.
 
 ## Prerequisites
 
@@ -41,10 +42,10 @@ mv wt-helper ~/.local/bin/
 Point it at a repo and tell it what to copy and what to run on cleanup:
 
 ```bash
-# The full monty
-wt-helper setup --envrc-file .envrc --wrapup-cmd ./scripts/cleanup.sh
+# The full monty (template + wrapup)
+wt-helper setup --envrc-file .envrc.template --vars-file .wt-helper.vars.json --wrapup-cmd ./scripts/cleanup.sh
 
-# Just envrc (I live alone, I don't need cleanup)
+# Plain envrc (no template, just copy)
 wt-helper setup --envrc-file .envrc
 
 # Just wrapup (I'm a chaos agent who doesn't use direnv)
@@ -104,35 +105,28 @@ PORT: "8080"
 DB_DRIVER: "sqlite"
 ```
 
-**Env var overrides at worktree creation time** — because sometimes one agent needs a different port:
-
-```bash
-# Default: uses vars file values
-git worktree add ../feature -b feature
-# → PORT=8080
-
-# Override: env var takes precedence
-PORT=9090 git worktree add ../feature -b feature
-# → PORT=9090
-
-# Multiple overrides
-PORT=7070 DB_DRIVER=postgres git worktree add ../feature -b feature
-# → PORT=7070, DB_DRIVER=postgres
-```
-
 ### The happy path
 
 ```bash
-# Spawn a worktree — .envrc appears like magic
-git worktree add ../my-feature -b feature-branch
+# Template repos — interactive creation, prompts for vars
+git wt-add ../my-feature -b feature-branch
+#   PORT [8080] =          ← press Enter to keep default
+#   DB_DRIVER [sqlite] =   ← press Enter to keep default
+# → prepares vars, creates worktree, renders .envrc, direnv allow
+
+# Override vars via env — skipped from prompts
+SECRET=agent-42 git wt-add ../my-auth -b auth-work
+#   PORT [8080] =          ← only PORT prompts, SECRET skipped
+
+# Plain repos — .envrc copied verbatim, no prompts
+git worktree add ../my-plain -b plain-branch
 # → wt-helper: .envrc installed and allowed
-# → (you didn't have to do anything, you're welcome)
 
 # Work on your feature...
 
 # Clean up — wrapup runs, worktree goes away
 git wt-remove ../my-feature
-# → wt-helper: running wrapup for /home/you/repos/../my-feature...
+# → wt-helper: running wrapup for .../my-feature...
 # → (docker stops, databases drop, angels weep)
 # → wt-helper: worktree removed
 
@@ -168,19 +162,30 @@ wt-helper completion fish > ~/.config/fish/completions/wt-helper.fish
 4. Writes config to `.git/worktree-helper.conf`
 5. Installs a `post-checkout` hook
 6. Installs a `git wt-remove` alias
+7. If template: installs a `git wt-add` alias
 
-### Creation: `post-checkout` hook
+### Interactive creation: `git wt-add` alias (template mode only)
 
-When you `git worktree add`, Git fires a `post-checkout` hook. The hook:
+For template repos, `git wt-add` handles vars BEFORE spawning the worktree:
 
-1. Detects "oh, this is a fresh worktree" (null SHA trick — don't ask)
+1. Reads the default vars file from `.git/worktree-helper-vars.{format}`
+2. Prompts for ALL custom vars, showing defaults in brackets
+3. Any env var already set (`PORT=9090`) skips the prompt for that var
+4. Writes merged vars to a temp file, sets `WT_VARS_FILE` env var
+5. Runs `git worktree add` → triggers the hook below
+6. Cleans up the temp file
+
+### Creation: `post-checkout` hook (engine)
+
+Triggered by ANY `git worktree add` (or `git wt-add`). The hook:
+
+1. Detects new worktrees (null SHA trick — don't ask)
 2. Reads `.git/worktree-helper.conf` to decide what to do
-3. If `is-template = true`: calls `wt-helper render-template` with the vars file + any env var overrides
-4. If `is-template = false`: copies the source `.envrc` verbatim
-5. Runs `direnv allow` so you don't have to type it like an animal
-6. If the worktree already has an `.envrc`, asks before overwriting (it's polite like that)
-
-The hook reads config at runtime, so changing `is-template` in the config file takes effect immediately — no need to re-run setup.
+3. Checks `$WT_VARS_FILE` — if set by `git wt-add`, uses it instead of the default vars file
+4. If `is-template = true`: calls `wt-helper render-template` with the vars file
+5. If `is-template = false`: copies `.git/envrc-source` verbatim
+6. Runs `direnv allow` so you don't have to type it like an animal
+7. If the worktree already has an `.envrc`, asks before overwriting (it's polite like that)
 
 The hook uses marker comments (`# >>> wt-helper start` / `# <<< wt-helper end`) so re-running `setup` doesn't clobber your other hooks. It's surgical. It's precise. It's better than you at managing hooks.
 
@@ -192,6 +197,7 @@ Git has no hook for worktree deletion, which is rude. So wt-helper installs a `g
 2. Runs it through `bash -c` (sources your `~/.profile` so shell functions work)
 3. If the wrapup fails, aborts — your cleanup had one job
 4. Runs `git worktree remove` and reports back
+5. Forwards extra flags (`--force`, `-f`) to `git worktree remove`
 
 ### What can `--wrapup-cmd` be?
 
@@ -260,19 +266,32 @@ With this vars file:
 {"PORT": "8080", "DB_DRIVER": "sqlite"}
 ```
 
-Agent 1's worktree (`feature-auth`) gets:
+Agent 1 creates a worktree:
+```bash
+git wt-add ../agent-1 -b feature-auth
+#   PORT [8080] =        press Enter
+#   DB_DRIVER [sqlite] = postgres         type override
+```
+
+Agent 1's rendered `.envrc`:
 ```bash
 export PORT=8080
-export DATABASE_URL="sqlite:///tmp/feature-auth.db"
-export WORKTREE=feature-auth
+export DATABASE_URL="postgres:///tmp/agent-1.db"
+export WORKTREE=agent-1
 export BRANCH=feature-auth
 ```
 
-Agent 2's worktree (`fix-bug`) gets:
+Agent 2 passes vars via env:
 ```bash
-export PORT=8080
-export DATABASE_URL="sqlite:///tmp/fix-bug.db"
-export WORKTREE=fix-bug
+PORT=9090 git wt-add ../agent-2 -b fix-bug
+#   DB_DRIVER [sqlite] =           press Enter (PORT skipped — in env)
+```
+
+Agent 2's rendered `.envrc`:
+```bash
+export PORT=9090
+export DATABASE_URL="sqlite:///tmp/agent-2.db"
+export WORKTREE=agent-2
 export BRANCH=fix-bug
 ```
 
@@ -313,6 +332,9 @@ wt-helper setup --wrapup-cmd juju-kill-all
 **Q: Why not just use `git worktree add` and copy `.envrc` manually?**
 A: Why wash dishes manually when you have a dishwasher?
 
+**Q: What's the difference between `git wt-add` and `git worktree add`?**
+A: `git wt-add` prompts you for template vars BEFORE creating the worktree (template mode only). `git worktree add` skips prompting — the hook uses the default vars file and any env var overrides. Both trigger the same `post-checkout` hook.
+
 **Q: What happens if I run `setup` twice?**
 A: It updates the hook in place (markers, remember?). No duplicates. It's idempotent, like a well-behaved function should be.
 
@@ -331,5 +353,5 @@ A: Yes, that's the "plain copy" mode. If your `.envrc` doesn't contain `{{`, it'
 **Q: What if I have both a `.wt-helper.vars.json` and a `.wt-helper.vars.yaml` in my repo?**
 A: JSON wins. The detection order is: `.json` > `.toml` > `.yaml` > `.yml`. Or just use `--vars-file` explicitly and stop confusing the tool.
 
-**Q: How do env var overrides work with templates?**
-A: When a worktree is created, `wt-helper render-template` checks the process environment for any variable matching a template variable name. Env vars take precedence over the vars file. So `PORT=9090 git worktree add ...` gives that worktree PORT=9090 while others get the default from the vars file.
+**Q: How do env var overrides work?**
+A: Any env var matching a template variable name skips the interactive prompt in `git wt-add`. The env var value is used automatically. For plain `git worktree add`, the `post-checkout` hook overlays env vars when calling `render-template`.
