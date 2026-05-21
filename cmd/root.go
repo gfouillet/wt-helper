@@ -376,11 +376,9 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// --- Install wt-add alias (template mode only) ---
-	if isTemplateMode {
-		if err := hooks.InstallWtAddAlias(repoRoot); err != nil {
-			return fmt.Errorf("install wt-add alias: %w", err)
-		}
+	// --- Install wt-add alias ---
+	if err := hooks.InstallWtAddAlias(repoRoot); err != nil {
+		return fmt.Errorf("install wt-add alias: %w", err)
 	}
 
 	// --- Summary ---
@@ -400,9 +398,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  wrapup cmd:   %s\n", resolvedWrapup)
 		fmt.Println("  deletion:     git wt-remove <worktree-path>")
 	}
-	if isTemplateMode {
-		fmt.Println("  creation:     git wt-add <worktree-path> -b <branch>")
-	}
+	fmt.Println("  creation:     git wt-add <worktree-path> -b <branch>")
 	if len(resolvedDepDirs) > 0 {
 		fmt.Printf("  dep dirs:     %s (%s)\n", strings.Join(resolvedDepDirs, ", "), depMode)
 	}

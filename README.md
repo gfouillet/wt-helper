@@ -12,7 +12,7 @@ git worktree add → "here's your .envrc, I already direnv-allow'd it, you're we
 git wt-remove    → "let me run your cleanup script before I nuke this"
 ```
 
-No more forgetting to copy `.envrc`. No more orphaned docker containers named `dev-feature-branch-42` haunting your machine like digital ghosts. For template repos, `git wt-add` prompts for vars BEFORE creating the worktree — interactive, with defaults, no surprises.
+No more forgetting to copy `.envrc`. No more orphaned docker containers named `dev-feature-branch-42` haunting your machine like digital ghosts. `git wt-add` creates worktrees with `.envrc` auto-installed and `direnv allow` run — and for template repos, it prompts for vars interactively before creating the worktree.
 
 ## Prerequisites
 
@@ -143,7 +143,7 @@ SECRET=agent-42 git wt-add ../my-auth -b auth-work
 #   PORT [8080] =          ← only PORT prompts, SECRET skipped
 
 # Plain repos — .envrc copied verbatim, no prompts
-git worktree add ../my-plain -b plain-branch
+git wt-add ../my-plain -b plain-branch
 # → wt-helper: .envrc installed and allowed
 
 # Work on your feature...
@@ -186,12 +186,12 @@ wt-helper completion fish > ~/.config/fish/completions/wt-helper.fish
 4. Writes config to `.git/worktree-helper.conf`
 5. Installs a `post-checkout` hook
 6. Installs a `git wt-remove` alias
-7. If template: installs a `git wt-add` alias
+7. Installs a `git wt-add` alias
 8. If `--dep-dir` specified: stores dependency dirs in config for linking/copying into new worktrees
 
-### Interactive creation: `git wt-add` alias (template mode only)
+### Worktree creation: `git wt-add` alias
 
-For template repos, `git wt-add` handles vars BEFORE spawning the worktree:
+`git wt-add` is the recommended way to create worktrees. For template repos, it handles vars BEFORE spawning the worktree:
 
 1. Reads the default vars file from `.git/worktree-helper-vars.{format}`
 2. Prompts for ALL custom vars, showing defaults in brackets
@@ -359,7 +359,7 @@ wt-helper setup --wrapup-cmd juju-kill-all
 A: Why wash dishes manually when you have a dishwasher?
 
 **Q: What's the difference between `git wt-add` and `git worktree add`?**
-A: `git wt-add` prompts you for template vars BEFORE creating the worktree (template mode only). `git worktree add` skips prompting — the hook uses the default vars file and any env var overrides. Both trigger the same `post-checkout` hook.
+A: `git wt-add` is the recommended way to create worktrees. In template mode, it prompts for vars interactively before creating the worktree. In plain mode, it works like `git worktree add` but you get a consistent interface either way. Both trigger the same `post-checkout` hook that installs `.envrc` and runs `direnv allow`. You can still use `git worktree add` directly if you prefer — the hook runs either way.
 
 **Q: What happens if I run `setup` twice?**
 A: It updates the hook in place (markers, remember?). No duplicates. It's idempotent, like a well-behaved function should be.
